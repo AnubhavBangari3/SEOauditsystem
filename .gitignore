@@ -1,77 +1,93 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 *$py.class
 *.so
 .Python
 
+# =========================
 # Virtual Environment
+# =========================
 venv/
 env/
 ENV/
 .venv/
 
+# =========================
 # Django
+# =========================
 *.log
 db.sqlite3
 db.sqlite3-journal
 local_settings.py
-media/
 staticfiles/
 
+# Media files
+media/*
+!media/csv_uploads/
+!media/csv_uploads/.gitkeep
+
+# =========================
 # Environment Variables
+# =========================
 .env
 .env.*
 !.env.example
 
-# VS Code
+# =========================
+# IDE / Editor
+# =========================
 .vscode/
-
-# PyCharm
 .idea/
 
+# =========================
 # OS Files
+# =========================
 .DS_Store
 Thumbs.db
 
-# Testing
+# =========================
+# Testing / Coverage
+# =========================
 .coverage
+coverage.xml
 htmlcov/
 .pytest_cache/
 .tox/
-coverage.xml
 
-# Migrations (optional keep if team project)
-**/migrations/*.py
-!**/migrations/__init__.py
-
-# Docker
-*.pid
-
-# Redis
-dump.rdb
-
-# Celery
-celerybeat-schedule
-celerybeat.pid
-
-# Build Files
-build/
-dist/
-*.egg-info/
-
-# Logs
-logs/
-*.log
-
+# =========================
 # Cache
+# =========================
 .cache/
 .pyre/
 .mypy_cache/
 
-# Uploaded CSV Files
-media/csv_uploads/
+# =========================
+# Docker / Runtime
+# =========================
+*.pid
+dump.rdb
+celerybeat-schedule
+celerybeat.pid
 
+# =========================
+# Build Files
+# =========================
+build/
+dist/
+*.egg-info/
+
+# =========================
+# Logs
+# =========================
+logs/
+
+# =========================
 # Secrets
+# =========================
 secrets.json
 credentials.json
