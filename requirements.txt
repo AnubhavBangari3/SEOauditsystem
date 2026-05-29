@@ -32,6 +32,7 @@ pluggy==1.6.0
 prompt_toolkit==3.0.52
 propcache==0.5.2
 psycopg==3.3.4
+psycopg2==2.9.12
 Pygments==2.20.0
 PyJWT==2.13.0
 pytest==9.0.3
