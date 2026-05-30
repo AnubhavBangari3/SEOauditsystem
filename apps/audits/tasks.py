@@ -4,6 +4,7 @@ from celery import shared_task
 from django.db import transaction
 
 from apps.audits.models import Audit, AuditStatus
+from apps.audits.services import scrape_seo_data
 
 logger = logging.getLogger(__name__)
 
@@ -11,12 +12,11 @@ logger = logging.getLogger(__name__)
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_audit_task(self, audit_id):
     """
-    Step 10:
-    Background task for processing one audit.
+    Process a single audit asynchronously.
 
-    Actual scraping logic will come in Step 11.
-    For now, this proves async audit flow:
-    pending -> completed
+    Flow:
+    pending -> scrape SEO data -> completed
+    failed if scraping or processing fails
     """
 
     try:
@@ -25,33 +25,36 @@ def process_audit_task(self, audit_id):
         if audit.status == AuditStatus.COMPLETED:
             return {
                 "audit_id": audit.id,
+                "url": audit.url,
                 "status": "already_completed",
             }
 
-        with transaction.atomic():
-            audit.status = AuditStatus.COMPLETED
+        seo_data = scrape_seo_data(audit.url)
 
-            # Temporary mock values.
-            # Step 11/12 will replace this with real scraper + SEO score logic.
-            audit.title = "Pending real scraper integration"
-            audit.meta_description = "Pending real meta description extraction"
-            audit.h1_count = 0
-            audit.word_count = 0
+        with transaction.atomic():
+            audit.title = seo_data.get("title", "")
+            audit.meta_description = seo_data.get("meta_description", "")
+            audit.h1_count = seo_data.get("h1_count", 0)
+            audit.word_count = seo_data.get("word_count", 0)
+
+            # Step 12 will calculate real SEO score.
             audit.seo_score = 0
+
+            audit.status = AuditStatus.COMPLETED
             audit.error_message = ""
 
             audit.save(update_fields=[
-                "status",
                 "title",
                 "meta_description",
                 "h1_count",
                 "word_count",
                 "seo_score",
+                "status",
                 "error_message",
                 "updated_at",
             ])
 
-        logger.info("Audit processed successfully. audit_id=%s", audit_id)
+        logger.info("Audit scraping completed. audit_id=%s", audit.id)
 
         return {
             "audit_id": audit.id,
@@ -61,6 +64,7 @@ def process_audit_task(self, audit_id):
 
     except Audit.DoesNotExist:
         logger.warning("Audit does not exist. audit_id=%s", audit_id)
+
         return {
             "audit_id": audit_id,
             "status": "not_found",
