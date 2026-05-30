@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -8,6 +9,7 @@ from apps.projects.models import Project
 from apps.audits.models import Audit
 from apps.audits.serializers import AuditSerializer, URLSubmitSerializer
 from apps.audits.permissions import IsAuditOwner
+from apps.audits.tasks import process_audit_task
 
 
 class AuditViewSet(viewsets.ReadOnlyModelViewSet):
@@ -37,12 +39,22 @@ class AuditViewSet(viewsets.ReadOnlyModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
 
-        audits = [
-            Audit(project=project, url=url)
-            for url in serializer.validated_data["urls"]
-        ]
+        urls = serializer.validated_data["urls"]
 
-        created_audits = Audit.objects.bulk_create(audits)
+        with transaction.atomic():
+            audits = [
+                Audit(project=project, url=url)
+                for url in urls
+            ]
+
+            created_audits = Audit.objects.bulk_create(audits)
+
+            transaction.on_commit(
+                lambda: [
+                    process_audit_task.delay(audit.id)
+                    for audit in created_audits
+                ]
+            )
 
         response_serializer = AuditSerializer(
             created_audits,
@@ -51,7 +63,7 @@ class AuditViewSet(viewsets.ReadOnlyModelViewSet):
 
         return Response(
             {
-                "message": "URLs submitted successfully.",
+                "message": "URLs submitted successfully and audit jobs queued.",
                 "count": len(created_audits),
                 "data": response_serializer.data,
             },
