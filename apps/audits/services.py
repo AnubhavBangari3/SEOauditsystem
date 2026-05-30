@@ -1,10 +1,8 @@
 import logging
-
 import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
-
 
 REQUEST_TIMEOUT = 20
 
@@ -16,75 +14,65 @@ HEADERS = {
 }
 
 
+class AuditScrapingError(Exception):
+    """Custom exception for audit scraping failures."""
+
+
 def scrape_seo_data(url: str) -> dict:
-    """
-    Fetch webpage and extract SEO data.
+    try:
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=REQUEST_TIMEOUT,
+            allow_redirects=True,
+        )
 
-    Returns:
-    {
-        title,
-        meta_description,
-        h1_count,
-        word_count
-    }
-    """
+        response.raise_for_status()
 
-    response = requests.get(
-        url,
-        headers=HEADERS,
-        timeout=REQUEST_TIMEOUT,
-        allow_redirects=True,
-    )
+    except requests.exceptions.Timeout:
+        raise AuditScrapingError("Request timed out while fetching URL.")
 
-    response.raise_for_status()
+    except requests.exceptions.ConnectionError:
+        raise AuditScrapingError("Could not connect to the URL.")
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser"
-    )
+    except requests.exceptions.TooManyRedirects:
+        raise AuditScrapingError("Too many redirects while fetching URL.")
 
-    title = ""
+    except requests.exceptions.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response else "unknown"
+        raise AuditScrapingError(f"HTTP error while fetching URL. Status code: {status_code}")
 
-    if soup.title and soup.title.string:
-        title = soup.title.string.strip()
+    except requests.exceptions.RequestException as exc:
+        raise AuditScrapingError(f"Request failed: {str(exc)}")
 
-    meta_description = ""
+    try:
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    meta_tag = soup.find(
-        "meta",
-        attrs={"name": "description"}
-    )
+        title = ""
+        if soup.title and soup.title.string:
+            title = soup.title.string.strip()
 
-    if meta_tag:
-        meta_description = meta_tag.get(
-            "content",
-            ""
-        ).strip()
+        meta_description = ""
+        meta_tag = soup.find("meta", attrs={"name": "description"})
+        if meta_tag:
+            meta_description = meta_tag.get("content", "").strip()
 
-    h1_count = len(
-        soup.find_all("h1")
-    )
+        h1_count = len(soup.find_all("h1"))
 
-    text_content = soup.get_text(
-        separator=" ",
-        strip=True
-    )
+        text_content = soup.get_text(separator=" ", strip=True)
+        word_count = len(text_content.split())
 
-    word_count = len(
-        text_content.split()
-    )
+        logger.info("SEO data scraped successfully for url=%s", url)
 
-    logger.info(
-        "Scraped SEO data successfully for url=%s",
-        url
-    )
+        return {
+            "title": title,
+            "meta_description": meta_description,
+            "h1_count": h1_count,
+            "word_count": word_count,
+        }
 
-    return {
-        "title": title,
-        "meta_description": meta_description,
-        "h1_count": h1_count,
-        "word_count": word_count,
-    }
+    except Exception as exc:
+        raise AuditScrapingError(f"HTML parsing failed: {str(exc)}")
 
 
 def calculate_seo_score(
@@ -93,21 +81,6 @@ def calculate_seo_score(
     h1_count: int,
     word_count: int,
 ) -> int:
-    """
-    Mock SEO scoring logic.
-
-    Score breakdown:
-    - Title exists: 25
-    - Meta description exists: 25
-    - At least one H1 exists: 20
-    - Word count:
-        >= 300 words: 30
-        >= 100 words: 15
-        < 100 words: 0
-
-    Max score = 100
-    """
-
     score = 0
 
     if title and title.strip():
