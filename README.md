@@ -253,17 +253,22 @@ Create a `.env` file in the project root.
 Example:
 
 ```env
-SECRET_KEY=your-secret-key
 DEBUG=True
+SECRET_KEY=your-secret-key
 
-DB_NAME=your_db_name
-DB_USER=your_db_user
+DB_NAME=seo_audit_db
+DB_USER=postgres
 DB_PASSWORD=your_db_password
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=5433
 
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/0
+REDIS_HOST=localhost
+REDIS_PORT=6380
+
+ALLOWED_HOSTS=127.0.0.1,localhost,web
+
+CELERY_BROKER_URL=redis://localhost:6380/0
+CELERY_RESULT_BACKEND=redis://localhost:6380/1
 ```
 
 ## Run Migrations
