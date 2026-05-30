@@ -15,6 +15,9 @@ The system provides:
 * CSV Bulk Upload
 * Dockerized Deployment
 * Swagger API Documentation
+* Retry and Failure Handling
+* Duplicate URL Protection
+* Paginated and Filterable Audit Results
 
 ---
 
@@ -31,6 +34,8 @@ The system provides:
 | Containerization | Docker + Docker Compose          |
 | Scraping         | requests + BeautifulSoup         |
 | Authentication   | JWT (SimpleJWT)                  |
+| Filtering        | django-filter                    |
+| Environment      | python-dotenv                    |
 
 ---
 
@@ -83,7 +88,15 @@ Audit stores:
 * H1 Count
 * Word Count
 * SEO Score
-* Errors
+* Error Message
+* Created Date
+* Updated Date
+
+Audit statuses:
+
+* pending
+* completed
+* failed
 
 ---
 
@@ -97,6 +110,8 @@ Dashboard provides:
 * Missing titles
 * Missing meta descriptions
 
+Dashboard can also be filtered by project.
+
 ---
 
 ## CSV Upload
@@ -105,9 +120,31 @@ Supports:
 
 * CSV upload
 * Invalid row skipping
+* Empty row skipping
 * Duplicate detection
 * URL validation
+* UTF-8 CSV parsing
 * Bulk queueing
+* Response summary with invalid and duplicate row details
+
+---
+
+## Duplicate Protection Strategy
+
+Duplicate URLs are prevented using multiple protection layers:
+
+* Request-level duplicate validation
+* CSV duplicate detection
+* Existing project URL validation
+* Database-level unique constraint enforcement
+
+Database uniqueness:
+
+```text
+(project, url)
+```
+
+This prevents accidental duplicate audits within the same project.
 
 ---
 
@@ -119,6 +156,8 @@ Implemented:
 * User-level isolation
 * Project ownership checks
 * Audit ownership checks
+* Authenticated-only APIs
+* Users can only view their own projects and audit results
 
 ---
 
@@ -133,11 +172,13 @@ JWT Authentication + Permission Validation
       ↓
 URL Validation / CSV Parsing
       ↓
+Duplicate Validation Layer
+      ↓
 Create Audit Records in Database (Pending State)
       ↓
 Database Transaction Commit
       ↓
-Queue Celery Tasks
+Queue Celery Tasks using transaction.on_commit()
       ↓
 Redis Broker
       ↓
@@ -162,16 +203,19 @@ Results API / Dashboard API
 
 1. User submits URLs or uploads CSV.
 2. Request passes authentication and ownership checks.
-3. URLs are validated and duplicate entries are prevented.
-4. Audit records are created in database with pending status.
-5. After successful transaction commit, Celery tasks are queued.
-6. Redis acts as broker between API layer and Celery workers.
-7. Worker processes each URL asynchronously.
-8. SEO data is extracted and SEO score is calculated.
-9. Audit record gets updated as completed or failed.
-10. Users fetch results using dashboard and audit APIs.
+3. URLs are validated.
+4. Duplicate entries are prevented.
+5. Audit records are created in database with pending status.
+6. Database transaction completes successfully.
+7. Celery tasks are queued only after successful database commit using `transaction.on_commit()`.
+8. Redis acts as broker between API layer and Celery workers.
+9. Celery worker processes each URL asynchronously.
+10. SEO data is extracted from the webpage.
+11. SEO score is calculated.
+12. Audit record gets updated as completed or failed.
+13. Users fetch results using dashboard and audit APIs.
 
-This design ensures reliability because tasks are only queued after database records are successfully stored.
+This design ensures reliability because tasks are only queued after database records are successfully stored. It also prevents orphan Celery jobs and inconsistent audit states.
 
 ---
 
@@ -380,6 +424,8 @@ Windows:
 celery -A config worker -l info --pool=solo
 ```
 
+`--pool=solo` is recommended on Windows to avoid multiprocessing issues.
+
 ---
 
 # Celery Setup
@@ -390,7 +436,16 @@ Run worker:
 celery -A config worker -l info --pool=solo
 ```
 
-`--pool=solo` is recommended on Windows to avoid multiprocessing issues.
+Run Celery test task if needed from Django shell:
+
+```bash
+python manage.py shell
+```
+
+```python
+from apps.audits.tasks import test_celery_task
+test_celery_task.delay()
+```
 
 ---
 
@@ -402,6 +457,12 @@ This project also supports Docker Compose.
 
 ```bash
 docker-compose up --build
+```
+
+## Start Full Docker Setup After Initial Build
+
+```bash
+docker-compose up
 ```
 
 ## Start Full Docker Setup in Background
@@ -429,7 +490,7 @@ docker-compose down
 docker-compose up --build
 ```
 
-Expected output:
+Expected services:
 
 ```text
 web service running
@@ -466,29 +527,107 @@ Redoc:
 
 ## Authentication
 
-| Method | Endpoint            |
-| ------ | ------------------- |
-| POST   | /api/auth/register/ |
-| POST   | /api/auth/login/    |
-| POST   | /api/auth/refresh/  |
+| Method | Endpoint            | Description          |
+| ------ | ------------------- | -------------------- |
+| POST   | /api/auth/register/ | Register new user    |
+| POST   | /api/auth/login/    | Login and get tokens |
+| POST   | /api/auth/refresh/  | Refresh access token |
 
 ## Projects
 
-| Method | Endpoint            |
-| ------ | ------------------- |
-| GET    | /api/projects/      |
-| POST   | /api/projects/      |
-| PUT    | /api/projects/{id}/ |
-| DELETE | /api/projects/{id}/ |
+| Method | Endpoint            | Description    |
+| ------ | ------------------- | -------------- |
+| GET    | /api/projects/      | List projects  |
+| POST   | /api/projects/      | Create project |
+| PUT    | /api/projects/{id}/ | Update project |
+| DELETE | /api/projects/{id}/ | Delete project |
 
 ## Audits
 
-| Method | Endpoint                             |
-| ------ | ------------------------------------ |
-| POST   | /api/audits/submit/{project_id}/     |
-| POST   | /api/audits/upload-csv/{project_id}/ |
-| GET    | /api/audits/                         |
-| GET    | /api/audits/dashboard/               |
+| Method | Endpoint                             | Description                  |
+| ------ | ------------------------------------ | ---------------------------- |
+| POST   | /api/audits/submit/{project_id}/     | Submit URLs for audit        |
+| POST   | /api/audits/upload-csv/{project_id}/ | Upload CSV containing URLs   |
+| GET    | /api/audits/                         | Paginated audit results      |
+| GET    | /api/audits/dashboard/               | Dashboard metrics            |
+
+---
+
+# Example URL Submission Request
+
+Endpoint:
+
+```text
+POST /api/audits/submit/2/
+```
+
+Request:
+
+```json
+{
+  "urls": [
+    "https://example.com",
+    "https://google.com"
+  ]
+}
+```
+
+Example Response:
+
+```json
+{
+  "message": "URLs submitted successfully and audit jobs queued.",
+  "count": 2,
+  "data": []
+}
+```
+
+---
+
+# Example CSV Upload Request
+
+Endpoint:
+
+```text
+POST /api/audits/upload-csv/2/
+```
+
+Request type:
+
+```text
+multipart/form-data
+```
+
+Field:
+
+```text
+file=<urls.csv>
+```
+
+CSV example:
+
+```csv
+url
+https://example.com
+https://google.com
+```
+
+The API handles invalid rows, duplicate URLs, empty rows, and valid queued URLs.
+
+---
+
+# Audit Results API
+
+The audit results API provides paginated audit records for the authenticated user.
+
+Supports:
+
+* Pagination
+* Search by URL
+* Filter by audit status
+* Filter by SEO score range
+* Filter by project
+* Ordering by created date, updated date, SEO score, and word count
 
 ---
 
@@ -510,7 +649,12 @@ Examples:
 ```text
 /api/audits/?status=completed
 /api/audits/?min_score=50
+/api/audits/?max_score=90
 /api/audits/?search=google
+/api/audits/?project=2
+/api/audits/?ordering=-seo_score
+/api/audits/?ordering=created_at
+/api/audits/?status=completed&min_score=50
 ```
 
 ---
@@ -530,18 +674,68 @@ Supports:
 &page_size=
 ```
 
+Examples:
+
+```text
+/api/audits/?page=1
+/api/audits/?page=2&page_size=10
+```
+
 ---
 
 # SEO Processing Logic
 
-SEO score generated using:
+For each URL, the system fetches the webpage and extracts:
 
-* Title presence
-* Meta description presence
-* H1 tags
+* Page title
+* Meta description
+* H1 count
 * Word count
 
-Scoring uses lightweight mock logic for evaluation.
+SEO score is generated using lightweight scoring rules:
+
+| Metric | Score |
+| ------ | ----- |
+| Title present | +25 |
+| Meta description present | +25 |
+| At least one H1 tag | +20 |
+| Word count >= 300 | +30 |
+| Word count >= 100 | +15 |
+
+Maximum possible score:
+
+```text
+100
+```
+
+The scoring logic is intentionally lightweight for evaluation purposes and can be extended later with production-grade SEO rules.
+
+---
+
+# Retry & Failure Handling
+
+Audit processing supports retry-safe asynchronous execution.
+
+Retry configuration:
+
+* Maximum retries: 3
+* Retry delay: 30 seconds
+* Temporary scraping failures automatically retry
+* Permanent failures are marked as failed
+* Error messages are stored in database
+
+Handled failure scenarios:
+
+* Request timeout
+* HTTP failures
+* Invalid URLs
+* Connection failures
+* Too many redirects
+* HTML parsing failures
+* Invalid CSV encoding
+* Unexpected worker exceptions
+
+This architecture improves resilience against unstable or temporarily unavailable websites.
 
 ---
 
@@ -568,6 +762,11 @@ Coverage includes:
 * Dashboard
 * CSV Upload
 * Celery Queueing
+* Filtering
+* Duplicate Protection
+* Background Processing
+* Retry Handling
+* Failure Handling
 
 ---
 
@@ -584,34 +783,70 @@ config/
 media/
 ```
 
+Detailed structure:
+
+```text
+seo-audit-system/
+├── README.md
+├── .env.example
+├── .gitignore
+├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+├── manage.py
+├── config/
+│   ├── settings.py
+│   ├── urls.py
+│   ├── celery.py
+│   ├── wsgi.py
+│   └── asgi.py
+├── apps/
+│   ├── accounts/
+│   ├── projects/
+│   └── audits/
+└── common/
+```
+
 ---
 
 # Assumptions
 
-* Simple SEO scoring is sufficient
-* No distributed crawling required
-* Single worker environment
-* URLs processed independently
+* Simple SEO scoring is sufficient for this assignment.
+* No distributed crawling is required.
+* Single worker environment is sufficient.
+* URLs are processed independently.
+* API documentation through Swagger is acceptable as API collection.
+* Docker Compose is used for local orchestration.
+* Redis is used as Celery broker.
+* PostgreSQL is used as primary database.
 
 ---
 
 # Tradeoffs
 
-* Mock scoring instead of production SEO engine
-* Simple scraper instead of crawler
-* Celery task per URL
-* Focused on backend architecture over crawler complexity
+* Mock scoring instead of production SEO engine.
+* Simple scraper instead of full crawler.
+* Celery task per URL for clarity and traceability.
+* Synchronous requests-based scraping instead of fully async aiohttp scraping.
+* Focused on backend architecture over crawler complexity.
+* No WebSocket progress updates in the core implementation.
+* No AI-generated recommendations in the core implementation.
 
 ---
 
 # Future Improvements
 
-* Redis caching
-* Celery Beat re-audits
+* Redis caching for dashboard APIs
+* Celery Beat periodic re-audits
 * Async scraping with aiohttp
-* Rate limiting
+* API rate limiting
 * AI SEO recommendations
 * WebSocket progress updates
+* More advanced SEO checks
+* Sitemap crawling
+* Robots.txt handling
+* Export audit reports
+* Retry dashboard for failed audits
 
 ---
 
@@ -628,3 +863,10 @@ media/
 * Tests Passing
 * README Added
 * .env.example Included
+* Duplicate Protection Added
+* Retry Handling Added
+* Failure Handling Added
+* Filtering Added
+* Pagination Added
+* Dashboard API Added
+* Audit Results API Added
