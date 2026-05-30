@@ -121,6 +121,7 @@ Implemented:
 * Audit ownership checks
 
 ---
+
 # Architecture
 
 ```text
@@ -195,7 +196,7 @@ Windows:
 env\Scripts\activate
 ```
 
-Install dependencies:
+## Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -203,44 +204,180 @@ pip install -r requirements.txt
 
 ## Configure Environment Variables
 
-Create:
+Create a `.env` file in the project root.
 
-```bash
-.env
+Example:
+
+```env
+SECRET_KEY=your-secret-key
+DEBUG=True
+
+DB_NAME=your_db_name
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_HOST=localhost
+DB_PORT=5432
+
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
 ```
 
-Run migrations:
+## Run Migrations
 
 ```bash
 python manage.py migrate
 ```
 
-Create superuser:
+## Create Superuser
 
 ```bash
 python manage.py createsuperuser
-```
-
-Start server:
-
-```bash
-python manage.py runserver
 ```
 
 ---
 
 # Redis Setup
 
-Run Redis:
+This project uses Redis as the Celery broker. Redis must be running before Celery tasks can be queued and processed.
+
+## Check Existing Redis Container
+
+Before creating a new Redis container, check if one already exists:
 
 ```bash
+docker ps -a
+```
+
+If a container named `seo-redis` already exists, start it:
+
+```bash
+docker start seo-redis
+```
+
+Verify Redis is running:
+
+```bash
+docker ps
+```
+
+Expected output should contain:
+
+```text
+CONTAINER ID   IMAGE            STATUS      PORTS                    NAMES
+xxxx           redis:7-alpine   Up ...      0.0.0.0:6379->6379/tcp   seo-redis
+```
+
+## Create Redis Container First Time
+
+If Redis container does not exist, create it:
+
+```bash
+docker run --name seo-redis -p 6379:6379 -d redis:7-alpine
+```
+
+What this does:
+
+```text
+--name seo-redis   -> container name
+-p 6379:6379       -> expose Redis port
+-d                 -> run in background
+redis:7-alpine     -> lightweight Redis image
+```
+
+## Fix Redis Container Conflict / Corrupted Container
+
+If this error appears:
+
+```text
+docker: Error response from daemon: Conflict.
+The container name "/seo-redis" is already in use.
+```
+
+Then stop and remove the old container:
+
+```bash
+docker stop seo-redis
+docker rm seo-redis
+```
+
+Then recreate it:
+
+```bash
+docker run --name seo-redis -p 6379:6379 -d redis:7-alpine
+```
+
+## Verify Redis Works
+
+```bash
+docker exec -it seo-redis redis-cli ping
+```
+
+Expected output:
+
+```text
+PONG
+```
+
+## Why `python manage.py runserver` May Fail Without Redis
+
+Some APIs queue Celery background jobs. If Redis is not running, the Django server or audit submission flow may fail with Redis/Celery connection errors.
+
+Common errors:
+
+```text
+Connection refused
+Redis connection error
+Celery broker unavailable
+```
+
+So start Redis before running Django and Celery.
+
+---
+
+# Run Project Locally
+
+Use 3 separate terminals.
+
+## Terminal 1: Start Redis
+
+If container already exists:
+
+```bash
+docker start seo-redis
+```
+
+If container is broken or Redis is not working:
+
+```bash
+docker stop seo-redis
+docker rm seo-redis
 docker run --name seo-redis -p 6379:6379 -d redis:7-alpine
 ```
 
 Verify:
 
 ```bash
-docker ps
+docker exec -it seo-redis redis-cli ping
+```
+
+Expected:
+
+```text
+PONG
+```
+
+## Terminal 2: Start Django Server
+
+```bash
+python manage.py runserver
+```
+
+## Terminal 3: Start Celery Worker
+
+Windows:
+
+```bash
+celery -A config worker -l info --pool=solo
 ```
 
 ---
@@ -253,20 +390,52 @@ Run worker:
 celery -A config worker -l info --pool=solo
 ```
 
+`--pool=solo` is recommended on Windows to avoid multiprocessing issues.
+
 ---
 
 # Docker Setup
 
-Build:
+This project also supports Docker Compose.
+
+## Start Full Docker Setup
 
 ```bash
 docker-compose up --build
 ```
 
-Stop:
+## Start Full Docker Setup in Background
+
+```bash
+docker-compose up -d --build
+```
+
+## Stop Docker Services
 
 ```bash
 docker-compose down
+```
+
+## View Logs
+
+```bash
+docker-compose logs -f
+```
+
+## Rebuild Cleanly
+
+```bash
+docker-compose down
+docker-compose up --build
+```
+
+Expected output:
+
+```text
+web service running
+db service running
+redis service running
+celery service running
 ```
 
 ---
@@ -459,6 +628,3 @@ media/
 * Tests Passing
 * README Added
 * .env.example Included
-
-```
-```
