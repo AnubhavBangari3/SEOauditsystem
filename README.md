@@ -535,21 +535,24 @@ Redoc:
 
 ## Projects
 
-| Method | Endpoint            | Description    |
-| ------ | ------------------- | -------------- |
-| GET    | /api/projects/      | List projects  |
-| POST   | /api/projects/      | Create project |
-| PUT    | /api/projects/{id}/ | Update project |
-| DELETE | /api/projects/{id}/ | Delete project |
+| Method | Endpoint            | Description        |
+| ------ | ------------------- | ------------------ |
+| GET    | /api/projects/      | List projects      |
+| POST   | /api/projects/      | Create project     |
+| GET    | /api/projects/{id}/ | Retrieve project   |
+| PUT    | /api/projects/{id}/ | Update project     |
+| PATCH  | /api/projects/{id}/ | Partial update     |
+| DELETE | /api/projects/{id}/ | Delete project     |
 
 ## Audits
 
-| Method | Endpoint                             | Description                  |
-| ------ | ------------------------------------ | ---------------------------- |
-| POST   | /api/audits/submit/{project_id}/     | Submit URLs for audit        |
-| POST   | /api/audits/upload-csv/{project_id}/ | Upload CSV containing URLs   |
-| GET    | /api/audits/                         | Paginated audit results      |
-| GET    | /api/audits/dashboard/               | Dashboard metrics            |
+| Method | Endpoint                             | Description                    |
+| ------ | ------------------------------------ | ------------------------------ |
+| POST   | /api/audits/submit/{project_id}/     | Submit URLs for audit          |
+| POST   | /api/audits/upload-csv/{project_id}/ | Upload CSV containing URLs     |
+| GET    | /api/audits/                         | Paginated audit results        |
+| GET    | /api/audits/{id}/                    | Retrieve audit details         |
+| GET    | /api/audits/dashboard/               | Dashboard metrics              |
 
 ---
 
