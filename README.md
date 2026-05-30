@@ -121,42 +121,56 @@ Implemented:
 * Audit ownership checks
 
 ---
-
 # Architecture
 
+```text
 User Request
-
-↓
-
+      ↓
 DRF API Layer
-
-↓
-
-Database Save (Pending Status)
-
-↓
-
-Celery Task Queue
-
-↓
-
+      ↓
+JWT Authentication + Permission Validation
+      ↓
+URL Validation / CSV Parsing
+      ↓
+Create Audit Records in Database (Pending State)
+      ↓
+Database Transaction Commit
+      ↓
+Queue Celery Tasks
+      ↓
 Redis Broker
+      ↓
+Celery Worker
+      ↓
+SEO Scraper Service
+      ↓
+Extract SEO Metrics
+(Title, Meta Description, H1 Count, Word Count)
+      ↓
+Generate SEO Score
+      ↓
+Update Audit Status
+(Completed / Failed)
+      ↓
+Store Final Results in Database
+      ↓
+Results API / Dashboard API
+```
 
-↓
+## Processing Flow
 
-Background Processing
+1. User submits URLs or uploads CSV.
+2. Request passes authentication and ownership checks.
+3. URLs are validated and duplicate entries are prevented.
+4. Audit records are created in database with pending status.
+5. After successful transaction commit, Celery tasks are queued.
+6. Redis acts as broker between API layer and Celery workers.
+7. Worker processes each URL asynchronously.
+8. SEO data is extracted and SEO score is calculated.
+9. Audit record gets updated as completed or failed.
+10. Users fetch results using dashboard and audit APIs.
 
-↓
-
-SEO Scraper
-
-↓
-
-Database Update
-
-↓
-
-Results APIs / Dashboard APIs
+This design ensures reliability because tasks are only queued after database records are successfully stored.
 
 ---
 
