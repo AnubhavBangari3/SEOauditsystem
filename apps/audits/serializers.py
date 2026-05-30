@@ -73,3 +73,14 @@ class URLSubmitSerializer(serializers.Serializer):
             })
 
         return attrs
+    
+class CSVUploadSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
+    def validate_file(self, file):
+        if not file.name.endswith(".csv"):
+            raise serializers.ValidationError(
+                "Only CSV files are allowed."
+            )
+
+        return file
